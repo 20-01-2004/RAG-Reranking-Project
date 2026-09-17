@@ -76,6 +76,11 @@ class RAGPipeline:
             retrieved_texts,
             top_k=min(3, len(retrieved_texts))
         )
+        print("\n===== RETRIEVED CHUNKS =====")
+
+        for text, score in reranked:
+            print("\nScore:", score)
+            print("Chunk:", text)
 
         # Build context
         context_parts = []
@@ -110,3 +115,24 @@ class RAGPipeline:
             "answer": answer,
             "sources": sources
         }
+if __name__ == "__main__":
+
+    pdf_path = "data/documents/sample.pdf"
+
+    rag = RAGPipeline(pdf_path)
+
+    question = input("\nEnter your question: ")
+
+    result = rag.ask(question)
+
+    print("\n===== ANSWER =====")
+    print(result["answer"])
+
+    print("\n===== SOURCES =====")
+
+    for source in result["sources"]:
+        print(
+            f"📄 {source['source']} | "
+            f"Page {source['page']} | "
+            f"Reranker Score: {source['score']:.4f}"
+        )
