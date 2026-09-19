@@ -4,7 +4,7 @@ import os
 import sys
 
 
-# Allow Python to find files inside src
+# Allow Python to find files inside src/
 sys.path.append(
     os.path.join(
         os.path.dirname(__file__),
@@ -15,44 +15,32 @@ sys.path.append(
 from rag_pipeline import RAGPipeline
 
 
-# -----------------------------
-# Page Configuration
-# -----------------------------
-
+# Page configuration
 st.set_page_config(
-    page_title="RAG GenAI Assistant",
+    page_title="RAG with Reranking",
     page_icon="🤖",
     layout="wide"
 )
 
 
-# -----------------------------
 # Title
-# -----------------------------
-
 st.title("🤖 RAG-Based GenAI Assistant")
 
 st.write(
     "Upload a PDF and ask questions about its contents. "
-    "The system uses FAISS retrieval, Cross-Encoder reranking, "
-    "and Gemini to generate grounded answers."
+    "The system uses FAISS vector retrieval, "
+    "Cross-Encoder reranking, and Gemini."
 )
 
 
-# -----------------------------
-# PDF Upload
-# -----------------------------
-
+# PDF upload
 uploaded_file = st.file_uploader(
     "Upload a PDF document",
     type=["pdf"]
 )
 
 
-# -----------------------------
 # Process PDF
-# -----------------------------
-
 if uploaded_file is not None:
 
     if st.button("Process PDF"):
@@ -75,13 +63,10 @@ if uploaded_file is not None:
             st.session_state.rag = rag
             st.session_state.pdf_name = uploaded_file.name
 
-            st.success("PDF processed successfully!")
+        st.success("PDF processed successfully!")
 
 
-# -----------------------------
-# Question Section
-# -----------------------------
-
+# Question section
 if "rag" in st.session_state:
 
     st.subheader("Ask a Question")
@@ -94,32 +79,106 @@ if "rag" in st.session_state:
 
         if query.strip():
 
-            with st.spinner(
-                "Searching documents and generating answer..."
-            ):
+            try:
 
-                result = st.session_state.rag.ask(
-                    query
-                )
+                with st.spinner(
+                    "Retrieving, reranking and generating answer..."
+                ):
 
-            # Answer
-            st.subheader("Answer")
+                    result = st.session_state.rag.ask(query)
 
-            st.write(
-                result["answer"]
-            )
 
-            # Sources
-            st.subheader("Sources")
+                # Retrieval comparison
+                st.subheader("🔎 Retrieval Comparison")
 
-            for source in result["sources"]:
+                col1, col2 = st.columns(2)
+
+
+                # Without reranking
+                with col1:
+
+                    st.markdown(
+                        "### ❌ Without Reranking"
+                    )
+
+                    st.caption(
+                        "FAISS Vector Similarity Retrieval"
+                    )
+
+                    for i, chunk in enumerate(
+                        result["without_reranking"],
+                        start=1
+                    ):
+
+                        st.markdown(
+                            f"**Chunk {i}**"
+                        )
+
+                        st.write(
+                            chunk["text"]
+                        )
+
+                        st.caption(
+                            f"Vector Similarity Score: "
+                            f"{chunk['vector_score']:.4f}"
+                        )
+
+                        st.divider()
+
+
+                # With reranking
+                with col2:
+
+                    st.markdown(
+                        "### ✅ With Reranking"
+                    )
+
+                    st.caption(
+                        "FAISS Retrieval → Cross-Encoder Reranking"
+                    )
+
+                    for i, chunk in enumerate(
+                        result["with_reranking"],
+                        start=1
+                    ):
+
+                        st.markdown(
+                            f"**Rank {i}**"
+                        )
+
+                        st.write(
+                            chunk["text"]
+                        )
+
+                        st.caption(
+                            f"Reranker Score: "
+                            f"{chunk['reranker_score']:.4f}"
+                        )
+
+                        st.divider()
+
+
+                # Final answer
+                st.subheader("💡 Final Answer")
 
                 st.write(
-                    f"📄 **{source['source']}** | "
-                    f"Page **{source['page']}** | "
-                    f"Reranker Score: "
-                    f"**{source['score']:.4f}**"
+                    result["answer"]
                 )
+
+                st.info(
+                    "The final answer is generated once "
+                    "using the reranked context."
+                )
+
+
+            except Exception as e:
+
+                st.error(
+                    "An error occurred while processing "
+                    "your question."
+                )
+
+                st.exception(e)
 
         else:
 

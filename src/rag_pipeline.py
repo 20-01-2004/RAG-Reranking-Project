@@ -44,50 +44,63 @@ class RAGPipeline:
         # Create FAISS index
         self.index = create_vector_store(embeddings)
 
-
     def ask(self, query):
 
-        # Create query embedding
+        # ---------------------------------
+        # 1. Create query embedding
+        # ---------------------------------
+
         query_embedding = create_embeddings([query])
 
-        # Initial FAISS retrieval
+        # ---------------------------------
+        # 2. FAISS Vector Retrieval
+        # ---------------------------------
+
         scores, indices = search_vector_store(
             self.index,
             query_embedding,
             top_k=min(5, len(self.chunks))
         )
 
-        # Get retrieved chunks
-        retrieved_chunks = [
-            self.chunks[index]
-            for index in indices
-            if index >= 0
-        ]
+        retrieved_chunks = []
 
-        # Extract text for reranking
+        for score, index in zip(scores, indices):
+
+            index = int(index)
+
+            if index >= 0:
+
+                chunk = self.chunks[index].copy()
+
+                chunk["vector_score"] = float(score)
+
+                retrieved_chunks.append(chunk)
+
+        # Top 3 without reranking
+        without_reranking = retrieved_chunks[:3]
+
+        # ---------------------------------
+        # 3. Cross-Encoder Reranking
+        # ---------------------------------
+
         retrieved_texts = [
             chunk["text"]
             for chunk in retrieved_chunks
         ]
 
-        # Rerank
         reranked = rerank(
             query,
             retrieved_texts,
             top_k=min(3, len(retrieved_texts))
         )
-        print("\n===== RETRIEVED CHUNKS =====")
 
-        for text, score in reranked:
-            print("\nScore:", score)
-            print("Chunk:", text)
+        # ---------------------------------
+        # 4. Prepare reranked chunks
+        # ---------------------------------
 
-        # Build context
-        context_parts = []
+        with_reranking = []
 
-        sources = []
-
-        for text, score in reranked:
+        for text, reranker_score in reranked:
 
             matching_chunk = next(
                 chunk
@@ -95,26 +108,43 @@ class RAGPipeline:
                 if chunk["text"] == text
             )
 
-            context_parts.append(text)
+            chunk = matching_chunk.copy()
 
-            sources.append({
-                "source": matching_chunk["source"],
-                "page": matching_chunk["page"],
-                "score": float(score)
-            })
+            chunk["reranker_score"] = float(reranker_score)
+
+            with_reranking.append(chunk)
+
+        # ---------------------------------
+        # 5. Build final context
+        # ---------------------------------
+
+        context_parts = [
+            chunk["text"]
+            for chunk in with_reranking
+        ]
 
         context = "\n\n".join(context_parts)
 
-        # Generate answer
+        # ---------------------------------
+        # 6. ONE Gemini call
+        # ---------------------------------
+
         answer = generate_answer(
             query,
             context
         )
 
+        # ---------------------------------
+        # 7. Return results
+        # ---------------------------------
+
         return {
             "answer": answer,
-            "sources": sources
+            "without_reranking": without_reranking,
+            "with_reranking": with_reranking
         }
+
+
 if __name__ == "__main__":
 
     pdf_path = "data/documents/sample.pdf"
@@ -125,14 +155,27 @@ if __name__ == "__main__":
 
     result = rag.ask(question)
 
-    print("\n===== ANSWER =====")
-    print(result["answer"])
+    print("\n===== WITHOUT RERANKING =====")
 
-    print("\n===== SOURCES =====")
+    for chunk in result["without_reranking"]:
 
-    for source in result["sources"]:
         print(
-            f"📄 {source['source']} | "
-            f"Page {source['page']} | "
-            f"Reranker Score: {source['score']:.4f}"
+            f"\nVector Score: "
+            f"{chunk['vector_score']:.4f}"
         )
+
+        print(chunk["text"])
+
+    print("\n===== WITH RERANKING =====")
+
+    for chunk in result["with_reranking"]:
+
+        print(
+            f"\nReranker Score: "
+            f"{chunk['reranker_score']:.4f}"
+        )
+
+        print(chunk["text"])
+
+    print("\n===== FINAL ANSWER =====")
+    print(result["answer"])
